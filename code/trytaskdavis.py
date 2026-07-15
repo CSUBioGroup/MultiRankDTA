@@ -223,13 +223,6 @@ def compute_loss(out, moe_loss, y1, y2, y3, labels, log_var_pw, log_var_pt, log_
     loss_huber = F.huber_loss(out, labels.view(-1, 1), delta=delta_huber)
     loss_moe = 0.01 * moe_loss
 
-    if opt.loss_mode == "mse_only":
-        return F.mse_loss(out, labels.view(-1, 1))
-
-    if opt.loss_mode == "fixed_equal_weight":
-        loss_experts = (raw_loss_pw + raw_loss_pt + raw_loss_lw) / 3.0
-        return loss_experts + loss_moe + loss_huber
-
 
     loss_pw = 0.5 * torch.exp(-log_var_pw) * raw_loss_pw + 0.5 * log_var_pw
     loss_pt = 0.5 * torch.exp(-log_var_pt) * raw_loss_pt + 0.5 * log_var_pt
@@ -266,9 +259,6 @@ def evaluate_loader(data_loader, model, opt, epoch=None, y_file=None):
     model.eval()
     all_labels = []
     all_preds = []
-    y1_abs_values = []
-    y2_abs_values = []
-    y3_abs_values = []
 
     with torch.no_grad():
         for batch_idx, (batch, batch_rest) in enumerate(data_loader):
@@ -276,12 +266,9 @@ def evaluate_loader(data_loader, model, opt, epoch=None, y_file=None):
             protein_data = torch.stack([item[0] for item in batch_rest]).to(opt.device)
             label = torch.stack([item[1] for item in batch_rest]).to(opt.device)
 
-            outs, _, y1, y2, y3, _ = model(drug_data, protein_data)
+            outs, _, _, _, _, _ = model(drug_data, protein_data)
             all_labels.extend(label.cpu().numpy().flatten())
             all_preds.extend(outs.cpu().numpy().flatten())
-            y1_abs_values.append(torch.abs(y1).detach().cpu().numpy())
-            y2_abs_values.append(torch.abs(y2).detach().cpu().numpy())
-            y3_abs_values.append(torch.abs(y3).detach().cpu().numpy())
 
     if y_file is not None:
         with open(y_file, 'a') as fw:
@@ -289,16 +276,7 @@ def evaluate_loader(data_loader, model, opt, epoch=None, y_file=None):
             for l_val, p_val in zip(all_labels, all_preds):
                 fw.write(f'{l_val},{p_val}\n')
 
-    metrics = summarize_metrics(all_labels, all_preds)
-    if y1_abs_values:
-        metrics["y1_abs_mean"] = float(np.mean(np.concatenate(y1_abs_values, axis=0)))
-        metrics["y2_abs_mean"] = float(np.mean(np.concatenate(y2_abs_values, axis=0)))
-        metrics["y3_abs_mean"] = float(np.mean(np.concatenate(y3_abs_values, axis=0)))
-    else:
-        metrics["y1_abs_mean"] = 0.0
-        metrics["y2_abs_mean"] = 0.0
-        metrics["y3_abs_mean"] = 0.0
-    return metrics
+    return summarize_metrics(all_labels, all_preds)
 
 
 def combined_training_strategy(model, train_loader, val_loader, test_loader, criterion_mle, optimizer, opt, log_var_pw, log_var_pt, log_var_lw):
@@ -348,11 +326,6 @@ def combined_training_strategy(model, train_loader, val_loader, test_loader, cri
             f"Valid CI: {valid_metrics['ci']:.6f}, Pearson: {valid_metrics['pearson']:.6f}, "
             f"Spearman: {valid_metrics['spearman']:.6f}, MSE: {valid_metrics['mse']:.6f}, RM2: {valid_metrics['rm2']:.6f}"
         )
-        print(
-            f"Expert |y| mean(valid): [y1={valid_metrics['y1_abs_mean']:.6f}, "
-            f"y2={valid_metrics['y2_abs_mean']:.6f}, y3={valid_metrics['y3_abs_mean']:.6f}]"
-        )
-
         with open(metrics_file, "a", newline='') as csvfile:
             writer = csv.writer(csvfile)
             if write_header:
@@ -360,16 +333,14 @@ def combined_training_strategy(model, train_loader, val_loader, test_loader, cri
                     "Epoch",
                     "Train_Loss",
                     "Train_CI", "Train_Pearson", "Train_Spearman", "Train_MSE", "Train_RM2",
-                    "Valid_CI", "Valid_Pearson", "Valid_Spearman", "Valid_MSE", "Valid_RM2",
-                    "Y1_Abs_Mean", "Y2_Abs_Mean", "Y3_Abs_Mean"
+                    "Valid_CI", "Valid_Pearson", "Valid_Spearman", "Valid_MSE", "Valid_RM2"
                 ])
                 write_header = False
             writer.writerow([
                 epoch,
                 losses.avg,
                 train_metrics["ci"], train_metrics["pearson"], train_metrics["spearman"], train_metrics["mse"], train_metrics["rm2"],
-                valid_metrics["ci"], valid_metrics["pearson"], valid_metrics["spearman"], valid_metrics["mse"], valid_metrics["rm2"],
-                valid_metrics["y1_abs_mean"], valid_metrics["y2_abs_mean"], valid_metrics["y3_abs_mean"]
+                valid_metrics["ci"], valid_metrics["pearson"], valid_metrics["spearman"], valid_metrics["mse"], valid_metrics["rm2"]
             ])
 
 
