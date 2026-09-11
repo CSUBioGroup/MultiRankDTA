@@ -136,7 +136,6 @@ multirank/trydavis/
 ```
 
 epoch_*.pth : checkpoint for each epoch (model + optimizer state).
-best.pth : the best model selected by test CI during training.
 all_epochs_metrics.csv : per-epoch metrics (e.g., CI, Pearson).
 all_epochs_predictions.txt : predicted values for each epoch (optional).
 
